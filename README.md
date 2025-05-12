@@ -1,40 +1,67 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+### Tạo class LoggingInterceptor
 
-## Getting Started
+```java
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpRequest;
+import org.springframework.http.client.ClientHttpRequestExecution;
+import org.springframework.http.client.ClientHttpRequestInterceptor;
+import org.springframework.http.client.ClientHttpResponse;
 
-First, run the development server:
+public class LoggingInterceptor implements ClientHttpRequestInterceptor {
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+    private static final Logger logger = LoggerFactory.getLogger(LoggingInterceptor.class);
+
+    @Override
+    public ClientHttpResponse intercept(HttpRequest request, byte[] body,
+                                        ClientHttpRequestExecution execution) throws IOException {
+
+        logRequestDetails(request, body);
+        ClientHttpResponse response = execution.execute(request, body);
+        logResponseDetails(response);
+        return response;
+    }
+
+    private void logRequestDetails(HttpRequest request, byte[] body) {
+        logger.info("=== Request ===");
+        logger.info("URI     : {}", request.getURI());
+        logger.info("Method  : {}", request.getMethod());
+        logger.info("Headers : {}", request.getHeaders());
+        logger.info("Body    : {}", new String(body, StandardCharsets.UTF_8));
+    }
+
+    private void logResponseDetails(ClientHttpResponse response) throws IOException {
+        logger.info("=== Response ===");
+        logger.info("Status  : {}", response.getStatusCode());
+        logger.info("Headers : {}", response.getHeaders());
+        String body = new BufferedReader(
+                new InputStreamReader(response.getBody(), StandardCharsets.UTF_8))
+                .lines().collect(Collectors.joining("\n"));
+        logger.info("Body    : {}", body);
+    }
+}
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Custom class RestClientConfig
 
-You can start editing the page by modifying `pages/index.tsx`. The page auto-updates as you edit the file.
+```java
+@Configuration
+public class RestClientConfig {
+  @Bean
+  public RestClient restClient() {
+    var factory = new BufferingClientHttpRequestFactory(new SimpleClientHttpRequestFactory());
 
-[API routes](https://nextjs.org/docs/api-routes/introduction) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.ts`.
+    RestTemplate template = new RestTemplate(factory);
+    template.setInterceptors(List.of(new LoggingInterceptor()));
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/api-routes/introduction) instead of React pages.
-
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+    return RestClient.builder()
+        .requestFactory(template.getRequestFactory()) // dùng factory có interceptor
+        .build();
+  }
+}
+```
